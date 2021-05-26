@@ -1,0 +1,149 @@
+version: "3"
+
+networks:
+  frontend:
+    ipam:
+      config:
+        - subnet: 172.20.0.0/24
+
+services:
+  load-balancer:
+    image: haproxy:alpine
+    container_name: haproxy
+    networks:
+      frontend:
+        ipv4_address: 172.20.0.10
+    volumes:
+      - ./load-balancer/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg
+    ports:
+      - 80:80
+
+  mongo0:
+    image: mongo:4.4
+    container_name: mongo0
+    networks:
+      frontend:
+        ipv4_address: 172.20.0.2
+    volumes:
+      - ./database/mongo0/data:/data/db
+    ports:
+      - 27017
+    restart: always
+    entrypoint: ["/usr/bin/mongod", "--bind_ip_all", "--replSet", "rs0"]
+
+  mongo1:
+    image: mongo:4.4
+    container_name: mongo1
+    networks:
+      frontend:
+        ipv4_address: 172.20.0.3
+    volumes:
+      - ./database/mongo1/data:/data/db
+    depends_on:
+      - mongo0
+    ports:
+      - 27017
+    restart: always
+    entrypoint: ["/usr/bin/mongod", "--bind_ip_all", "--replSet", "rs0"]
+
+  mongo2:
+    image: mongo:4.4
+    container_name: mongo2
+    networks:
+      frontend:
+        ipv4_address: 172.20.0.4
+    volumes:
+      - ./database/mongo2/data:/data/db
+    depends_on:
+      - mongo1
+    ports:
+      - 27017
+    restart: always
+    entrypoint: ["/usr/bin/mongod", "--bind_ip_all", "--replSet", "rs0"]
+
+  redis:
+    container_name: redis
+    image: "bitnami/redis:latest"
+    ports:
+      - "6379"
+    environment:
+      - ALLOW_EMPTY_PASSWORD=yes
+    volumes:
+      - "/cache/data:/bitnami"
+    networks:
+      frontend:
+        ipv4_address: 172.20.0.11
+
+  # mongosetup:
+  #   image: mongo:4.4
+  #   depends_on:
+  #     - mongo0
+  #     - mongo1
+  #     - mongo2
+  #   networks:
+  #     frontend:
+  #       ipv4_address: 172.20.0.5
+  #   volumes:
+  #     - ./database/scripts:/scripts
+  #   restart: "no"
+  #   entrypoint: ["bash", "/scripts/mongo_setup.sh"]
+
+  web0:
+    build: ./web
+    image: flask
+    container_name: web0
+    networks:
+      frontend:
+        ipv4_address: 172.20.0.6
+    depends_on:
+      - load-balancer
+      - mongo0
+      - mongo1
+      - mongo2
+    environment:
+      - SERVER_NAME=web0
+      - FLASK_ENV=development
+    volumes:
+      - ./web:/code
+    ports:
+      - 5000:5000
+
+  web1:
+    build: ./web
+    image: flask
+    container_name: web1
+    networks:
+      frontend:
+        ipv4_address: 172.20.0.7
+    depends_on:
+      - web0
+      - mongo0
+      - mongo1
+      - mongo2
+    environment:
+      - SERVER_NAME=web1
+      - FLASK_ENV=development
+    volumes:
+      - ./web:/code
+    ports:
+      - 5001:5000
+
+  web2:
+    build: ./web
+    image: flask
+    container_name: web2
+    networks:
+      frontend:
+        ipv4_address: 172.20.0.8
+    depends_on:
+      - web1
+      - mongo0
+      - mongo1
+      - mongo2
+    environment:
+      - SERVER_NAME=web2
+      - FLASK_ENV=development
+    volumes:
+      - ./web:/code
+    ports:
+      - 5002:5000
